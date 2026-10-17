@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23202125'/%3E%3Cpath d='M20 18v28M28 18v28M36 18v28M44 18v28' stroke='%23F4F3EF' stroke-width='5' stroke-linecap='round'/%3E%3Cpath d='M14 42L50 22' stroke='%23F2B544' stroke-width='5.5' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>Aziz Tally</title>
+<style>
+  /* Layout: download block beside a tappable preview of the app, then the four install steps, then a short how-to. */
+  :root {
+    color-scheme: dark;
+    --bg: #0F1012;
+    --panel: #17181B;
+    --raised: #202125;
+    --line: #2B2D32;
+    --ink: #F4F3EF;
+    --muted: #A3A6AD;
+    --faint: #7C8088;
+    --amber: #F2B544;
+    --amber-ink: #1B1406;
+    --ok: #9BD6AE;
+    --warn: #F0A39C;
+    --ui: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    --step-0: 0.9375rem;
+    --step-1: 1.125rem;
+    --step-2: 1.5rem;
+    --step-4: clamp(2.6rem, 6vw, 3.6rem);
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--ui);
+    font-size: var(--step-0);
+    line-height: 1.55;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: clamp(28px, 6vw, 64px) 48px;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; display: grid; gap: clamp(40px, 6vw, 64px); }
+
+  /* ---------- top: download + preview */
+  .top { display: grid; gap: 40px; align-items: center; grid-template-columns: 1fr; }
+  @media (min-width: 860px) { .top { grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr); gap: 56px; } }
+  .intro { display: grid; gap: 22px; min-width: 0; }
+  .brand { display: flex; align-items: center; gap: 16px; }
+  .brand svg { width: 64px; height: 64px; flex: none; }
+  .eyebrow { font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
+  h1 { font-family: var(--display); font-weight: 600; font-size: var(--step-4); line-height: 1.02; margin: 2px 0 0; letter-spacing: -0.01em; text-wrap: balance; }
+  .lede { font-size: var(--step-1); color: var(--muted); margin: 0; max-width: 34ch; }
+
+  .get { display: grid; gap: 12px; justify-items: start; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 12px; text-decoration: none;
+    font: 600 1.0625rem/1 var(--ui);
+    background: var(--amber); color: var(--amber-ink);
+    border: 0; border-radius: 14px; padding: 18px 26px; cursor: pointer;
+    transition: transform 120ms ease, filter 120ms ease;
+  }
+  .btn:hover { filter: brightness(1.06); }
+  .btn:active { transform: translateY(1px); }
+  .btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .btn[disabled] { background: var(--raised); color: var(--faint); cursor: not-allowed; filter: none; transform: none; }
+  .btn svg { width: 20px; height: 20px; }
+  .meta { color: var(--faint); font-size: 0.875rem; margin: 0; }
+  .status { min-height: 1.55em; margin: 0; font-size: 0.9375rem; color: var(--muted); max-width: 46ch; }
+  .status[data-kind="ok"] { color: var(--ok); }
+  .status[data-kind="warn"] { color: var(--warn); }
+
+  /* the preview: a small copy of the real counter screen */
+  .screen {
+    position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 10;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 18px;
+    box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8), 0 0 0 8px var(--panel);
+    cursor: pointer; user-select: none; -webkit-user-select: none; overflow: hidden;
+    display: grid; place-items: center;
+  }
+  .screen:focus-visible { outline: 3px solid var(--amber); outline-offset: 10px; }
+  .screen .reset, .screen .gear {
+    position: absolute; top: 4.5%; font-size: clamp(0.62rem, 1.4vw, 0.8rem); color: var(--ink);
+    background: rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 0.5em 0.9em;
+  }
+  .screen .reset { left: 4%; }
+  .screen .gear { right: 4%; padding: 0.5em 0.65em; color: var(--muted); }
+  .screen .tab {
+    position: absolute; right: 0; top: 50%; translate: 0 -50%; width: 4.2%; height: 22%;
+    background: var(--raised); border-radius: 8px 0 0 8px; display: grid; place-items: center;
+    font-size: clamp(0.5rem, 1vw, 0.62rem); color: var(--muted); font-weight: 600; writing-mode: vertical-rl; letter-spacing: 0.06em;
+  }
+  .screen .count { display: grid; justify-items: center; gap: 0.2em; }
+  .screen .num {
+    font-family: var(--display); font-weight: 600; font-size: clamp(4.5rem, 15vw, 9.5rem); line-height: 0.9;
+    font-variant-numeric: tabular-nums; color: var(--ink);
+  }
+  .screen .last { color: var(--muted); font-size: clamp(0.7rem, 1.6vw, 0.95rem); font-variant-numeric: tabular-nums; }
+  .screen .date { position: absolute; left: 4%; bottom: 5%; color: var(--faint); font-size: clamp(0.55rem, 1.2vw, 0.72rem); }
+  .screen .hint { position: absolute; bottom: 5%; left: 50%; translate: -50% 0; color: var(--faint); font-size: clamp(0.55rem, 1.2vw, 0.72rem); white-space: nowrap; }
+  .pulse { animation: pulse 220ms ease-out; }
+  @keyframes pulse { from { transform: scale(1.06); } to { transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } .btn { transition: none; } }
+  .try { margin: 14px 0 0; color: var(--faint); font-size: 0.875rem; text-align: center; }
+
+  /* ---------- install steps */
+  h2 { font-family: var(--display); font-size: var(--step-2); font-weight: 600; margin: 0; letter-spacing: -0.005em; }
+  .section { display: grid; gap: 20px; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+  .step { background: var(--panel); border-radius: 16px; padding: 20px 20px 22px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .step .n {
+    width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
+    background: var(--raised); color: var(--amber); font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .step h3 { margin: 0; font-size: var(--step-1); font-weight: 600; }
+  .step p { margin: 0; color: var(--muted); }
+  .step b, .use b { color: var(--ink); font-weight: 600; }
+  .key {
+    display: inline-block; font: 600 0.8rem/1 var(--ui); color: var(--ink); background: var(--raised);
+    border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 6px; padding: 4px 7px; white-space: nowrap;
+  }
+
+  /* ---------- how to use */
+  .use { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr); border-top: 1px solid var(--line); }
+  .use > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  @media (min-width: 640px) { .use > div { grid-template-columns: 230px minmax(0, 1fr); gap: 24px; } }
+  .use dt { font-weight: 600; }
+  .use dd { margin: 0; color: var(--muted); }
+  .foot { color: var(--faint); font-size: 0.875rem; margin: 0; max-width: 70ch; }
+</style>
+
+</head>
+<body>
+<main class="wrap">
+  <section class="top">
+    <div class="intro">
+      <div class="brand">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <defs>
+            <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stop-color="#2C2E34"/>
+              <stop offset="1" stop-color="#111215"/>
+            </linearGradient>
+          </defs>
+          <rect x="0.5" y="0.5" width="63" height="63" rx="14.5" fill="url(#tile)" stroke="#FFFFFF" stroke-opacity="0.14"/>
+          <g stroke="#F4F3EF" stroke-width="4.8" stroke-linecap="round" fill="none">
+            <line x1="20" y1="17.5" x2="20" y2="46.5"/>
+            <line x1="28" y1="17.5" x2="28" y2="46.5"/>
+            <line x1="36" y1="17.5" x2="36" y2="46.5"/>
+            <line x1="44" y1="17.5" x2="44" y2="46.5"/>
+          </g>
+          <line x1="13.5" y1="42.2" x2="50.5" y2="21.8" stroke="#F2B544" stroke-width="5.5" stroke-linecap="round"/>
+        </svg>
+        <div>
+          <div class="eyebrow">Made for Aziz's shop</div>
+          <h1>Aziz Tally</h1>
+        </div>
+      </div>
+      <p class="lede">Tap the screen and the number goes up by one. Every press is saved with its time, and each day starts again from 0.</p>
+      <div class="get">
+        <a class="btn" id="download" href="Aziz-Tally-Setup.zip" download="Aziz Tally Setup.zip">
+          <svg viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/>
+          </svg>
+          Download for Windows
+        </a>
+        <p class="meta">Version 1.0.0 &middot; 108 KB &middot; Windows 10 or 11 &middot; download it on the shop laptop</p>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <div>
+      <div class="screen" id="screen" role="button" tabindex="0" aria-label="Preview of the app. Press to add 1.">
+        <span class="reset">&#8635;&nbsp; Reset</span>
+        <span class="gear" aria-hidden="true">&#9881;</span>
+        <span class="tab" aria-hidden="true">LOG</span>
+        <div class="count">
+          <div class="num" id="num">16</div>
+          <div class="last" id="last">Last press&nbsp; 3:42:15 PM</div>
+        </div>
+        <span class="date" id="date">Saturday 17/10/2026</span>
+      </div>
+      <p class="try">This is what it looks like. Tap the screen above to try it.</p>
+    </div>
+  </section>
+
+  <section class="section" aria-labelledby="install">
+    <h2 id="install">Install it in four steps</h2>
+    <ol class="steps">
+      <li class="step">
+        <span class="n">1</span>
+        <h3>Download</h3>
+        <p>Press <b>Download for Windows</b>. <b>Aziz Tally Setup.zip</b> goes into your Downloads folder.</p>
+      </li>
+      <li class="step">
+        <span class="n">2</span>
+        <h3>Unzip</h3>
+        <p>Right-click <b>Aziz Tally Setup.zip</b>, choose <b>Extract All</b>, then press <b>Extract</b>.</p>
+      </li>
+      <li class="step">
+        <span class="n">3</span>
+        <h3>Run the setup</h3>
+        <p>Double-click <b>Aziz Tally Setup.exe</b>. If a blue box says <b>Windows protected your PC</b>, click <b>More info</b>, then <b>Run anyway</b>. Windows shows this for new apps from small makers.</p>
+      </li>
+      <li class="step">
+        <span class="n">4</span>
+        <h3>Install</h3>
+        <p>Click <b>Install</b>. Aziz Tally opens by itself, and its icon is on the desktop and in the Start menu.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="section" aria-labelledby="using">
+    <h2 id="using">Using it</h2>
+    <dl class="use">
+      <div><dt>Add 1</dt><dd>Tap anywhere on the screen, or press <span class="key">Space</span>.</dd></div>
+      <div><dt>Take 1 off</dt><dd>Press <span class="key">Backspace</span>, or open the log and press <b>Undo last press</b>.</dd></div>
+      <div><dt>Start again from 0</dt><dd><b>Reset</b> in the top-left corner. It asks first, so a stray tap can't wipe the count.</dd></div>
+      <div><dt>See every press</dt><dd>The small <b>LOG</b> tab on the right edge lists each press with its time.</dd></div>
+      <div><dt>A new day</dt><dd>At midnight the count starts again from 0 by itself. Yesterday's count is kept.</dd></div>
+      <div><dt>Bring back an old count</dt><dd>Press the <b>gear</b> (Settings), pick the day, then press <b>Restore</b>. This also undoes a Reset pressed by mistake.</dd></div>
+      <div><dt>If the laptop shuts down</dt><dd>Open Aziz Tally again. It carries on from the last number, because every press is saved as it happens.</dd></div>
+      <div><dt>Screen stays on</dt><dd>While the app is open the screen won't turn off. You can switch this off in Settings.</dd></div>
+    </dl>
+    <p class="foot">If the Download button doesn't work, open this link in Chrome or Edge on the laptop itself, not inside a messaging app.</p>
+  </section>
+</main>
+
+<script>
+  (function () {
+
+    // The preview behaves like the app: a press adds 1 and shows the time.
+    var screen = document.getElementById("screen");
+    var num = document.getElementById("num");
+    var last = document.getElementById("last");
+    var dateEl = document.getElementById("date");
+    var count = 16;
+    var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+    function two(n) { return (n < 10 ? "0" : "") + n; }
+    function timeText(d) {
+      var h = d.getHours() % 12 || 12;
+      return h + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()) + (d.getHours() < 12 ? " AM" : " PM");
+    }
+    var today = new Date();
+    dateEl.textContent = DAYS[today.getDay()] + " " + two(today.getDate()) + "/" + two(today.getMonth() + 1) + "/" + today.getFullYear();
+    function press() {
+      count += 1;
+      num.textContent = String(count);
+      last.textContent = "Last press  " + timeText(new Date());
+      num.classList.remove("pulse");
+      void num.offsetWidth;
+      num.classList.add("pulse");
+    }
+    screen.addEventListener("click", press);
+    screen.addEventListener("keydown", function (e) {
+      if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!e.repeat) press(); }
+    });
+  })();
+</script>
+</body>
+</html>
