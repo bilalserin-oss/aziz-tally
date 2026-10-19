@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0F1012">
+<meta name="robots" content="noindex">
+<meta name="description" content="Tap the screen to count. Every press is saved, and each day starts again from 0.">
+<title>Aziz Tally</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+  <!-- The whole screen is the button: any press here adds 1 -->
+  <main id="surface" aria-label="Tap anywhere to add 1">
+    <div id="ripples" aria-hidden="true"></div>
+    <div id="stage">
+      <canvas id="count" role="img" aria-label="Count 0"></canvas>
+      <p id="last">No presses yet today</p>
+    </div>
+    <p id="date" class="note left"></p>
+    <p id="hint" class="note center">Tap anywhere to add 1</p>
+  </main>
+
+  <!-- Corner controls (these never count as a press) -->
+  <button id="resetBtn" class="soft tl" type="button" title="Start again from 0 (a new day)">
+    <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.4h-3.4"/></svg>
+    <span>Reset</span>
+  </button>
+
+  <div class="tr">
+    <button id="installBtn" class="primary" type="button" hidden title="Add Aziz Tally to this Chromebook's launcher">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
+      <span>Install app</span>
+    </button>
+    <button id="fullBtn" class="soft icon" type="button" title="Full screen">
+      <svg id="fullIcon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/></svg>
+    </button>
+    <button id="settingsBtn" class="soft icon" type="button" title="Settings, history and restore">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+    </button>
+  </div>
+
+  <!-- Press log: a small tab on the right edge; the panel slides out from behind it -->
+  <aside id="log" aria-label="Today's press log">
+    <button id="logHandle" type="button" title="Today's press log" aria-expanded="false">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 7.5 10l5 5"/></svg>
+      <span>LOG</span>
+    </button>
+    <section id="logPanel">
+      <header class="log-head">
+        <div>
+          <h2>Today's presses</h2>
+          <p id="logSub"></p>
+        </div>
+        <button id="logClose" class="soft icon small" type="button" title="Hide the log">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5l5 5-5 5"/></svg>
+        </button>
+      </header>
+      <ol id="logList" class="rows"></ol>
+      <p id="logEmpty" class="empty">No presses yet today.</p>
+      <footer class="log-foot">
+        <button id="undoBtn" class="soft wide" type="button" title="Take 1 off the count (Backspace)">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 3.5 8 7 11.5M3.5 8H12a4.5 4.5 0 0 1 0 9H8"/></svg>
+          <span>Undo last press</span>
+        </button>
+      </footer>
+    </section>
+  </aside>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <div id="saveBanner" hidden>Can't save right now. Keep counting: the number on screen is right and it keeps trying to save.</div>
+
+  <!-- Settings (covers the whole window) -->
+  <section id="settings" hidden aria-label="Settings">
+    <header class="set-head">
+      <div>
+        <h1>Settings</h1>
+        <p>Every press is saved straight away, so closing the app or a restart carries on from where it was. To bring back an older count, pick the day and press Restore.</p>
+      </div>
+      <button id="settingsClose" class="soft" type="button" title="Back to the counter (Esc)">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
+        <span>Close</span>
+      </button>
+    </header>
+    <div class="set-body">
+      <div class="card days">
+        <h3 class="label">Days</h3>
+        <ol id="dayList"></ol>
+      </div>
+      <div class="card detail">
+        <div class="detail-head">
+          <h2 id="dayTitle"></h2>
+          <p id="daySub"></p>
+        </div>
+        <h3 class="label">Restore</h3>
+        <div id="restoreList"></div>
+        <p id="restoreEmpty" class="empty"></p>
+        <div class="press-head">
+          <h3 class="label">Every press</h3>
+          <button id="csvBtn" class="link" type="button" title="Save this day's presses as a spreadsheet file">Save a copy</button>
+        </div>
+        <ol id="dayLog" class="rows"></ol>
+      </div>
+    </div>
+    <footer class="set-foot">
+      <label class="switch" for="keepOn">
+        <input id="keepOn" type="checkbox">
+        <span class="track" aria-hidden="true"><span class="knob"></span></span>
+        <span class="switch-text">
+          <b>Keep the screen on while Aziz Tally is open</b>
+          <small>The screen won't dim, turn off or lock while the app is showing.</small>
+        </span>
+      </label>
+      <p id="aboutText"></p>
+    </footer>
+  </section>
+
+  <!-- Confirm dialog -->
+  <div id="dialog" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="dialogTitle">
+    <div class="dialog-card">
+      <h2 id="dialogTitle"></h2>
+      <p id="dialogBody"></p>
+      <div class="dialog-actions">
+        <button id="dialogCancel" class="soft" type="button">Cancel</button>
+        <button id="dialogConfirm" class="primary" type="button"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Shown when the app is already open in another window -->
+  <div id="elsewhere" class="overlay solid" hidden>
+    <div class="dialog-card">
+      <h2>Aziz Tally is already open</h2>
+      <p>It's open in another window or tab, and only one can count at a time. Use that one, or close it and this window takes over by itself.</p>
+    </div>
+  </div>
+</body>
+</html>
