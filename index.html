@@ -53,11 +53,10 @@
   .lede { font-size: var(--step-1); color: var(--muted); margin: 0; max-width: 34ch; }
 
   [hidden] { display: none !important; }
-  .platforms { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
-  @media (min-width: 520px) { .platforms { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .platforms { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); max-width: 470px; }
   .platform {
     background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px;
-    display: grid; gap: 12px; align-content: start; min-width: 0;
+    display: grid; gap: 12px; align-content: start; justify-items: start; min-width: 0;
   }
   .platform.here { border-color: rgba(242, 181, 68, 0.55); }
   .pf-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-height: 26px; }
@@ -66,7 +65,7 @@
     font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--amber-ink); background: var(--amber); border-radius: 6px; padding: 3px 7px;
   }
-  .platform .btn { width: 100%; justify-content: center; padding: 15px 14px; gap: 10px; font-size: 1rem; white-space: nowrap; }
+  .platform .btn { justify-content: center; padding: 15px 22px; gap: 10px; font-size: 1rem; max-width: 100%; }
   .btn.secondary { background: var(--raised); color: var(--ink); }
   .btn {
     display: inline-flex; align-items: center; gap: 12px; text-decoration: none;
