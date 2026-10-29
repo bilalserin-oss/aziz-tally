@@ -1,33 +1,44 @@
 // Aziz Tally for Chromebook - the screen. Counting rules live in core.js, saving in store.js.
+// Products are boxes on the Card or Cash side; pressing one adds 1 to it and to the total.
 
 import {
-  Tally, MemoryStorage, VERSION, addDays, parseStamp, fmtTime, fmtTimeShort, fmtDate,
-  fmtDayLong, fmtDayShort, dayName, plural, summarize, restorePoints, toCsv,
+  Tally, MemoryStorage, VERSION, SIDES, SIDE_NAMES, addDays, parseStamp, fmtTime, fmtTimeShort, fmtDate,
+  fmtDayLong, fmtDayShort, dayName, plural, summarize, restorePoints, toCsv, boxNames,
 } from './core.js';
 import { IdbStorage } from './store.js';
 
 const $ = id => document.getElementById(id);
 const el = {
-  surface: $('surface'), ripples: $('ripples'), count: $('count'), last: $('last'), date: $('date'), hint: $('hint'),
-  resetBtn: $('resetBtn'), installBtn: $('installBtn'), fullBtn: $('fullBtn'), fullIcon: $('fullIcon'), settingsBtn: $('settingsBtn'),
-  log: $('log'), logHandle: $('logHandle'), logPanel: $('logPanel'), logSub: $('logSub'), logClose: $('logClose'),
-  logList: $('logList'), logEmpty: $('logEmpty'), undoBtn: $('undoBtn'),
+  board: $('board'), center: $('center'), count: $('count'), last: $('last'), date: $('date'), hint: $('hint'),
+  boxes: { card: $('boxes-card'), cash: $('boxes-cash') },
+  resetBtn: $('resetBtn'), installBtn: $('installBtn'), logBtn: $('logBtn'), fullBtn: $('fullBtn'), fullIcon: $('fullIcon'),
+  settingsBtn: $('settingsBtn'),
+  log: $('log'), logSub: $('logSub'), logClose: $('logClose'), logList: $('logList'), logEmpty: $('logEmpty'), undoBtn: $('undoBtn'),
   toast: $('toast'), saveBanner: $('saveBanner'),
-  settings: $('settings'), settingsClose: $('settingsClose'), dayList: $('dayList'), dayTitle: $('dayTitle'), daySub: $('daySub'),
+  settings: $('settings'), settingsClose: $('settingsClose'), tabHistory: $('tabHistory'), tabProducts: $('tabProducts'),
+  setNote: $('setNote'), historyPane: $('historyPane'), productsPane: $('productsPane'),
+  dayList: $('dayList'), dayTitle: $('dayTitle'), daySub: $('daySub'), dayBreakdown: $('dayBreakdown'),
   restoreList: $('restoreList'), restoreEmpty: $('restoreEmpty'), csvBtn: $('csvBtn'), dayLog: $('dayLog'),
+  prodList: { card: $('prodList-card'), cash: $('prodList-cash') },
+  addName: { card: $('addName-card'), cash: $('addName-cash') },
   keepOn: $('keepOn'), aboutText: $('aboutText'),
   dialog: $('dialog'), dialogTitle: $('dialogTitle'), dialogBody: $('dialogBody'), dialogCancel: $('dialogCancel'), dialogConfirm: $('dialogConfirm'),
   elsewhere: $('elsewhere'),
 };
 
 const LOG_AUTO_HIDE_MS = 45000;
-// After a dialog or Settings closes, ignore screen presses briefly so the second half
-// of a double-click on "Reset"/"Restore"/"Close" can't land on the counter.
+// After a dialog or Settings closes, ignore presses briefly so the second half of a
+// double-click on "Reset"/"Restore"/"Close" can't land on a product box.
 const TAP_GUARD_MS = 450;
 const NUMBER_FONT = 'system-ui, "Segoe UI", Roboto, sans-serif';
 const SETTINGS_KEY = 'aziz-tally-settings';
+const BOXES_KEY = 'aziz-tally-boxes';
+const NOTE_HISTORY = 'Every press is saved straight away, so closing the app or a restart carries on from where it was. To bring back an older count, pick the day and press Restore.';
+const NOTE_PRODUCTS = 'Each product gets its own box on its side of the counter. Renaming one keeps the presses it already has.';
 
 let tally = null;
+let products = loadProducts();   // [{ id, name, side }] in screen order
+let boxEls = new Map();          // product id -> { root, count, time }
 let logOpen = false;
 let logHideTimer = 0;
 let toastTimer = 0;
@@ -52,9 +63,10 @@ async function start() {
   registerServiceWorker();
   watchInstall();
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
-  el.aboutText.textContent = `Aziz Tally ${VERSION} for Chromebook   ·   Keys: Space or Enter = add 1,  Backspace = undo   ·   Counts are saved in this Chromebook's Chrome, under this Google account`;
+  el.aboutText.textContent = `Aziz Tally ${VERSION} for Chromebook   ·   Backspace = undo the last press   ·   Counts are saved in this Chromebook's Chrome, under this Google account`;
   el.keepOn.checked = settings.keepOn;
-  renderEmptyFrame();
+  buildBoxes();
+  drawCount('0');
 
   // Only one window may count at a time, or two windows would each think they know the count.
   if (!(await takeWindow(true))) {
@@ -71,11 +83,14 @@ async function start() {
     el.saveBanner.textContent = "This browser won't let Aziz Tally save. Counting works, but closing it loses the count. Use Chrome while signed in (not Guest or Incognito).";
     el.saveBanner.hidden = false;
   }
-  tally = new Tally(storage);
-  tally.onSaveState = renderSaveState;
-  await tally.open();
+  // Presses are only taken once today's records are fully loaded.
+  const loaded = new Tally(storage);
+  loaded.onSaveState = renderSaveState;
+  await loaded.open();
+  tally = loaded;
+  recoverProducts();
   renderAll();
-  if (tally.count > 0) toast(`Welcome back. Carrying on from today's count of ${tally.count}.`, 4000);
+  if (tally.count > 0) toast(`Welcome back. Carrying on from today's total of ${tally.count}.`, 4000);
 
   setInterval(tick, 1000);
   document.addEventListener('visibilitychange', () => { tick(); applyWakeLock(); });
@@ -108,15 +123,42 @@ function loadSettings() {
 }
 
 function saveSettings() {
+  try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); return true; } catch { return false; }
+}
+
+function loadProducts() {
   try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    return true;
+    const list = JSON.parse(localStorage.getItem(BOXES_KEY) || '[]');
+    if (!Array.isArray(list)) return [];
+    const seen = new Set();
+    return list.filter(p => p && typeof p.id === 'string' && p.id && !seen.has(p.id) && seen.add(p.id) &&
+      typeof p.name === 'string' && p.name.trim() && SIDES.includes(p.side))
+      .map(p => ({ id: p.id, name: p.name.trim().slice(0, 40), side: p.side }));
   } catch {
-    return false;
+    return [];
   }
 }
 
-/** Once a minute is plenty when hidden; once a second while showing. Notices midnight. */
+function saveProducts() {
+  try { localStorage.setItem(BOXES_KEY, JSON.stringify(products)); return true; } catch { return false; }
+}
+
+/** If the product list was lost but today has presses for products, put those boxes back. */
+function recoverProducts() {
+  if (products.length) return;
+  const names = boxNames(tally.day.events);
+  const ids = Object.keys(names).filter(id => names[id].side);
+  if (!ids.length) return;
+  products = ids.map(id => ({ id, name: names[id].name, side: names[id].side }));
+  saveProducts();
+  buildBoxes();
+}
+
+function newId() {
+  return `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
+
+/** Once a second while showing (Chrome slows it when hidden). Notices midnight. */
 async function tick() {
   if (!tally) return;
   const before = tally.day.key;
@@ -126,47 +168,54 @@ async function tick() {
 // ------------------------------------------------------------------ input
 
 function wireInput() {
-  el.surface.addEventListener('pointerdown', e => {
-    // Count the first finger (or the mouse's left button) once; ignore extra fingers and other buttons.
-    if (!e.isPrimary || e.button !== 0) return;
+  // A product box counts on finger-down / mouse-down: the first finger only, the left button only.
+  el.board.addEventListener('pointerdown', e => {
+    const box = e.target.closest('.box');
+    if (!box || !e.isPrimary || e.button !== 0) return;
     e.preventDefault();
     if (!tally || performance.now() < blockedUntil) return;
-    doTap(e.clientX, e.clientY);
+    pressBox(box.dataset.id, box);
   });
-  el.surface.addEventListener('contextmenu', e => e.preventDefault());
+  // Keyboard users: Tab to a box, then Enter or Space (that "click" has no pointer, detail 0).
+  el.board.addEventListener('click', e => {
+    const box = e.target.closest('.box');
+    if (box && e.detail === 0 && tally) pressBox(box.dataset.id, box);
+  });
+  el.board.addEventListener('contextmenu', e => e.preventDefault());
+  el.board.addEventListener('click', e => {
+    if (e.target.closest('[data-open-products]')) openSettings('products');
+  });
 
-  // Buttons never keep keyboard focus after a click, so Space/Enter always count instead of re-pressing them.
+  // Buttons never keep focus after a mouse click, so a later Space/Enter can't re-press them.
   document.addEventListener('mousedown', e => { if (e.target.closest('button')) e.preventDefault(); });
 
   el.resetBtn.addEventListener('click', askReset);
-  el.settingsBtn.addEventListener('click', openSettings);
+  el.settingsBtn.addEventListener('click', () => openSettings('history'));
   el.fullBtn.addEventListener('click', toggleFullscreen);
-  el.logHandle.addEventListener('click', () => setLogOpen(!logOpen));
+  el.logBtn.addEventListener('click', () => setLogOpen(!logOpen));
   el.logClose.addEventListener('click', () => setLogOpen(false));
   el.undoBtn.addEventListener('click', doUndo);
   el.settingsClose.addEventListener('click', closeSettings);
+  el.tabHistory.addEventListener('click', () => setTab('history'));
+  el.tabProducts.addEventListener('click', () => setTab('products'));
   el.dialogCancel.addEventListener('click', closeDialog);
   el.dialogConfirm.addEventListener('click', confirmDialog);
   el.csvBtn.addEventListener('click', saveCsv);
   el.keepOn.addEventListener('change', () => setKeepOn(el.keepOn.checked));
-  for (const ev of ['pointermove', 'pointerdown', 'wheel']) el.logPanel.addEventListener(ev, keepLogOpen, { passive: true });
-  window.addEventListener('resize', renderCount);
+  for (const ev of ['pointermove', 'pointerdown', 'wheel']) el.log.addEventListener(ev, keepLogOpen, { passive: true });
+  wireProductsEditor();
+  window.addEventListener('resize', () => drawCount(String(tally ? tally.count : 0)));
   document.addEventListener('fullscreenchange', renderFullscreenButton);
   if (!document.fullscreenEnabled) el.fullBtn.hidden = true;
-
   window.addEventListener('keydown', onKey, true);
-  window.addEventListener('keyup', e => {
-    if ((e.key === ' ' || e.key === 'Enter') && el.settings.hidden) e.preventDefault();
-  }, true);
 }
 
 function onKey(e) {
   if (!tally || !el.elsewhere.hidden) return;
-  const tapKey = e.key === ' ' || e.key === 'Enter' || e.key === '+' || e.key === '=' || e.key === 'ArrowUp' || e.code === 'NumpadAdd';
   if (!el.dialog.hidden) {
-    // Enter/Space never confirm, so fast counting can't reset by accident.
-    if (e.key === 'Escape') closeDialog();
-    if (tapKey || e.key === 'Escape') e.preventDefault();
+    // Enter/Space never confirm by accident; Esc cancels.
+    if (e.key === 'Escape') { e.preventDefault(); closeDialog(); return; }
+    if ((e.key === 'Enter' || e.key === ' ') && !el.dialog.contains(e.target)) e.preventDefault();
     return;
   }
   if (!el.settings.hidden) {
@@ -174,18 +223,8 @@ function onKey(e) {
     return;
   }
   if (e.key === 'Escape') { if (logOpen) setLogOpen(false); return; }
-  if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) {
-    e.preventDefault();
-    if (!e.repeat) doUndo();
-    return;
-  }
-  if (e.ctrlKey || e.altKey || e.metaKey) return;
-  if (tapKey) {
-    e.preventDefault();
-    if (!e.repeat) doTap(null, null); // holding a key down counts once
-    return;
-  }
-  if (e.key === 'Backspace' || e.key === '-' || e.code === 'NumpadSubtract') {
+  if ((e.ctrlKey && (e.key === 'z' || e.key === 'Z')) ||
+      (!e.ctrlKey && !e.altKey && !e.metaKey && (e.key === 'Backspace' || e.key === '-' || e.code === 'NumpadSubtract'))) {
     e.preventDefault();
     if (!e.repeat) doUndo();
   }
@@ -193,10 +232,12 @@ function onKey(e) {
 
 // ------------------------------------------------------------------ counting
 
-async function doTap(x, y) {
+async function pressBox(id, boxEl) {
+  const product = products.find(p => p.id === id);
+  if (!product) return;
   const before = tally.day.key;
-  if (x !== null) ripple(x, y);
-  await tally.tap();
+  flash(boxEl);
+  await tally.tap(product);
   afterChange(before);
   pulse();
 }
@@ -206,15 +247,17 @@ async function doUndo() {
   const before = tally.day.key;
   const e = await tally.undo();
   afterChange(before);
-  toast(e ? `Undone. The count is now ${tally.count}.` : 'Nothing to undo. The count is 0.');
+  if (!e) { toast(tally.count === 0 ? 'Nothing to undo. The total is 0.' : 'Nothing to undo since the last reset or restore.'); return; }
+  const what = e.box ? `${nameOf(e.box, e.boxName)} (${SIDE_NAMES[e.side] || ''})` : 'the last press';
+  toast(`Undone: ${what}. The total is now ${tally.count}.`);
 }
 
 async function askReset() {
   if (!tally) return;
   await tick();
-  if (tally.count === 0) { toast('The count is already 0.'); return; }
-  showDialog('Reset the count to 0?',
-    `Today's count of ${tally.count} is kept in Settings, so you can bring it back if this was a mistake.`,
+  if (tally.count === 0) { toast('Everything is already at 0.'); return; }
+  showDialog('Reset everything to 0?',
+    `Today's total of ${tally.count} and every product's count are kept in Settings, so you can bring them back if this was a mistake.`,
     'Reset to 0', true,
     async () => {
       const before = tally.day.key;
@@ -236,31 +279,81 @@ async function announceNewDay(prevKey) {
   const ended = prev.length ? prev[prev.length - 1].count : 0;
   const when = prevKey === addDays(tally.day.key, -1) ? 'Yesterday' : fmtDayShort(prevKey);
   toast(ended > 0
-    ? `New day. Counting from 0. ${when} ended at ${ended} (saved in Settings).`
-    : 'New day. Counting from 0.', 7000);
-  if (!el.settings.hidden) refreshSettings();
+    ? `New day. Everything starts from 0. ${when} ended at ${ended} (saved in Settings).`
+    : 'New day. Everything starts from 0.', 7000);
+  if (!el.settings.hidden) refreshHistory();
+}
+
+function nameOf(id, fallback) {
+  const p = products.find(x => x.id === id);
+  return p ? p.name : (fallback || 'Removed product');
 }
 
 // ------------------------------------------------------------------ rendering
 
-function renderEmptyFrame() {
-  drawCount('0');
-  el.last.textContent = '';
-  el.hint.hidden = true;
-}
-
 function renderAll() {
-  renderCount();
+  renderBoxValues();
+  drawCount(String(tally.count));
   renderStatus();
   syncLog(false);
   renderSaveState();
 }
 
-function renderCount() { drawCount(String(tally ? tally.count : 0)); }
+/** Builds the product boxes from the product list (after start-up or a change in Settings). */
+function buildBoxes() {
+  boxEls = new Map();
+  for (const side of SIDES) {
+    const list = products.filter(p => p.side === side);
+    const wrap = el.boxes[side];
+    if (!list.length) {
+      const empty = document.createElement('div');
+      empty.className = 'side-empty';
+      const text = document.createElement('span');
+      text.textContent = `No ${SIDE_NAMES[side].toLowerCase()} products yet.`;
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'link';
+      add.dataset.openProducts = side;
+      add.textContent = 'Add products';
+      empty.append(text, add);
+      wrap.replaceChildren(empty);
+      continue;
+    }
+    wrap.replaceChildren(...list.map(p => {
+      const root = document.createElement('button');
+      root.type = 'button';
+      root.className = 'box';
+      root.dataset.id = p.id;
+      const name = document.createElement('span');
+      name.className = 'box-name';
+      name.textContent = p.name;
+      const count = document.createElement('span');
+      count.className = 'box-count';
+      count.textContent = '0';
+      const time = document.createElement('span');
+      time.className = 'box-time';
+      root.append(name, count, time);
+      root.setAttribute('aria-label', `${p.name}, ${SIDE_NAMES[side]}`);
+      boxEls.set(p.id, { root, count, time });
+      return root;
+    }));
+  }
+  if (tally) renderBoxValues();
+}
 
-/** Draws the number so the digits fill about 42% of the height (less on short screens), never wider than 84%. */
+function renderBoxValues() {
+  for (const [id, b] of boxEls) {
+    const n = tally ? tally.day.boxCount(id) : 0;
+    const t = tally ? tally.day.boxLastTime(id) : null;
+    b.count.textContent = String(n);
+    b.time.textContent = t ? `Last ${fmtTime(t)}` : n > 0 ? 'Restored' : 'No presses yet';
+  }
+}
+
+/** Draws the total so the digits fill about 42% of the middle column's height, never wider than 90% of it. */
 function drawCount(text) {
-  const w = window.innerWidth, h = window.innerHeight;
+  const box = el.center.getBoundingClientRect();
+  const w = box.width, h = box.height;
   if (!w || !h) return;
   const canvas = el.count;
   const ctx = canvas.getContext('2d');
@@ -269,7 +362,7 @@ function drawCount(text) {
   const inkW = m.actualBoundingBoxLeft + m.actualBoundingBoxRight;
   const inkH = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
   if (!inkW || !inkH) return;
-  const scale = Math.min(h * (h < 640 ? 0.36 : 0.42) / inkH, w * 0.84 / inkW);
+  const scale = Math.min(h * (h < 520 ? 0.36 : 0.42) / inkH, w * 0.9 / inkW);
   const dpr = window.devicePixelRatio || 1;
   const cssW = Math.ceil(inkW * scale) + 2, cssH = Math.ceil(inkH * scale) + 2;
   canvas.style.width = `${cssW}px`;
@@ -280,9 +373,9 @@ function drawCount(text) {
   ctx.font = `600 100px ${NUMBER_FONT}`;
   ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--ink').trim() || '#F4F3EF';
   ctx.fillText(text, m.actualBoundingBoxLeft, m.actualBoundingBoxAscent);
-  canvas.setAttribute('aria-label', `Count ${text}`);
-  el.last.style.fontSize = `${Math.max(17, Math.min(30, h * 0.032))}px`;
-  el.last.style.marginTop = `${Math.max(18, h * 0.05)}px`;
+  canvas.setAttribute('aria-label', `Total ${text}`);
+  el.last.style.fontSize = `${Math.max(16, Math.min(28, window.innerHeight * 0.03))}px`;
+  el.last.style.marginTop = `${Math.max(16, h * 0.05)}px`;
 }
 
 function renderStatus() {
@@ -294,29 +387,26 @@ function renderStatus() {
   else if (last.action === 'RESTORE') el.last.textContent = `Restored at ${fmtTime(parseStamp(last.time))}`;
   else el.last.textContent = `Changed at ${fmtTime(parseStamp(last.time))}`;
   el.date.textContent = fmtDayLong(tally.day.key);
-  el.hint.hidden = tally.day.events.length > 0;
+  el.hint.textContent = !products.length ? 'Add your products in Settings to start counting'
+    : tally.day.events.length === 0 ? 'Tap a product to count it' : '';
+  el.hint.hidden = !el.hint.textContent;
 }
 
 function renderSaveState() {
   if (tally && !(tally.storage instanceof MemoryStorage)) el.saveBanner.hidden = !tally.saveFailing;
 }
 
+function flash(boxEl) {
+  if (!boxEl || !motion()) return;
+  boxEl.classList.remove('hit');
+  void boxEl.offsetWidth;
+  boxEl.classList.add('hit');
+}
+
 function pulse() {
   if (!motion()) return;
   el.count.animate([{ transform: 'scale(1.05)' }, { transform: 'scale(1)' }],
     { duration: 220, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' });
-}
-
-function ripple(x, y) {
-  if (!motion()) return;
-  while (el.ripples.childElementCount > 10) el.ripples.firstElementChild.remove();
-  const dot = document.createElement('div');
-  dot.className = 'ripple';
-  dot.style.left = `${x}px`;
-  dot.style.top = `${y}px`;
-  el.ripples.append(dot);
-  dot.animate([{ transform: 'scale(0.15)', opacity: 1 }, { transform: 'scale(1)', opacity: 0 }],
-    { duration: 520, easing: 'cubic-bezier(0.2, 0.7, 0.3, 1)' }).onfinish = () => dot.remove();
 }
 
 function toast(message, ms = 2800) {
@@ -334,7 +424,7 @@ function setLogOpen(open) {
   logOpen = open;
   if (open && !wasOpen) syncLog(true);
   el.log.classList.toggle('open', open);
-  el.logHandle.setAttribute('aria-expanded', String(open));
+  el.logBtn.setAttribute('aria-expanded', String(open));
   clearTimeout(logHideTimer);
   if (open) logHideTimer = setTimeout(() => setLogOpen(false), LOG_AUTO_HIDE_MS);
 }
@@ -347,7 +437,7 @@ function keepLogOpen() {
 
 /** Keeps the log in step with today's events (newest first). Cheap when only new presses arrived. */
 function syncLog(rebuild) {
-  el.undoBtn.disabled = tally.count <= 0;
+  el.undoBtn.disabled = !tally.day.lastLive;
   if (!logOpen && !rebuild) return;
   const evs = tally.day.events;
   if (rebuild || logKey !== tally.day.key || logShown > evs.length) {
@@ -363,6 +453,7 @@ function syncLog(rebuild) {
   el.logEmpty.hidden = evs.length > 0;
 }
 
+/** One line of a log: the total after it, the time, and what happened. */
 function rowFor(e) {
   const li = document.createElement('li');
   const badge = document.createElement('span');
@@ -373,33 +464,61 @@ function rowFor(e) {
   time.className = 'time';
   time.textContent = fmtTime(parseStamp(e.time));
   kind.className = 'kind';
-  if (e.action === 'UNDO') { kind.textContent = 'Undo'; badge.classList.add('undo'); }
-  else if (e.action === 'RESET') {
+  const product = e.box ? `${nameOf(e.box, e.boxName)} · ${SIDE_NAMES[e.side] || ''}` : '';
+  if (e.action === 'TAP') {
+    kind.textContent = product;
+    if (e.side) kind.classList.add(e.side);
+  } else if (e.action === 'UNDO') {
+    kind.textContent = product ? `Undo ${product}` : 'Undo';
+    badge.classList.add('undo');
+  } else if (e.action === 'RESET') {
     const was = parseInt(e.note, 10);
     kind.textContent = Number.isInteger(was) ? `Reset (was ${was})` : 'Reset';
     badge.classList.add('reset');
-  } else if (e.action === 'RESTORE') {
+  } else {
     const from = parseStamp(e.note);
     kind.textContent = !from ? 'Restored'
       : e.note.startsWith(e.day) ? `Restored (${fmtTimeShort(from)})` : `Restored from ${fmtDayShort(e.note.slice(0, 10))}`;
     badge.classList.add('restore');
   }
+  kind.title = kind.textContent;
   li.append(badge, time, kind);
   return li;
 }
 
-// ------------------------------------------------------------------ settings / restore
+// ------------------------------------------------------------------ settings
 
-async function openSettings() {
+async function openSettings(tab) {
   if (!tally) return;
   await tick();
   setLogOpen(false);
   selectedDay = tally.day.key;
-  await refreshSettings();
+  await setTab(tab === 'products' ? 'products' : 'history');
   el.settings.hidden = false;
+  if (tab === 'products' && !products.length) el.addName.card.focus();
 }
 
-async function refreshSettings() {
+/** Fills the page before showing it, so it never flashes old content. */
+async function setTab(tab) {
+  const showProducts = tab === 'products';
+  if (showProducts) renderProductsEditor();
+  else await refreshHistory();
+  el.tabHistory.setAttribute('aria-selected', String(!showProducts));
+  el.tabProducts.setAttribute('aria-selected', String(showProducts));
+  el.historyPane.hidden = showProducts;
+  el.productsPane.hidden = !showProducts;
+  el.setNote.textContent = showProducts ? NOTE_PRODUCTS : NOTE_HISTORY;
+}
+
+function closeSettings() {
+  if (document.activeElement && el.settings.contains(document.activeElement)) document.activeElement.blur();
+  el.settings.hidden = true;
+  guardTaps();
+}
+
+// ---- history and restore
+
+async function refreshHistory() {
   const days = await tally.listDays();
   if (!days.some(d => d.day === selectedDay)) selectedDay = tally.day.key;
   el.dayList.replaceChildren(...days.map(d => {
@@ -432,6 +551,37 @@ function markSelectedDay() {
   for (const b of el.dayList.querySelectorAll('.day')) b.setAttribute('aria-pressed', String(b.dataset.day === selectedDay));
 }
 
+/** "gIet 1 · auber 2" chips per side for a set of box counts. */
+function breakdownChips(boxes, names) {
+  const chips = [];
+  for (const side of SIDES) {
+    const parts = Object.entries(boxes)
+      .filter(([id, n]) => n > 0 && ((products.find(p => p.id === id) || names[id] || {}).side === side))
+      .sort((a, b) => {
+        const ia = products.findIndex(p => p.id === a[0]), ib = products.findIndex(p => p.id === b[0]);
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      })
+      .map(([id, n]) => [nameOf(id, names[id] && names[id].name), n]);
+    if (!parts.length) continue;
+    const chip = document.createElement('span');
+    chip.className = `chip ${side}-side`;
+    chip.append(`${SIDE_NAMES[side]}: `);
+    parts.forEach(([name, n], i) => {
+      if (i) chip.append(' · ');
+      chip.append(`${name} `);
+      const b = document.createElement('b');
+      b.textContent = String(n);
+      chip.append(b);
+    });
+    chips.push(chip);
+  }
+  return chips;
+}
+
+function breakdownText(boxes, names) {
+  return breakdownChips(boxes, names).map(c => c.textContent).join('   ');
+}
+
 async function showDay(key) {
   const isToday = key === tally.day.key;
   const evs = await tally.readDay(key);
@@ -439,14 +589,15 @@ async function showDay(key) {
   el.dayTitle.textContent = `${isToday ? 'Today, ' : ''}${fmtDayLong(key)}`;
   el.daySub.textContent = !evs.length
     ? (isToday ? 'No presses yet today.' : 'No presses on this day.')
-    : `${isToday ? 'Count now' : 'Ended at'} ${s.finalCount}  ·  ${plural(s.presses, 'press', 'presses')}` +
+    : `${isToday ? 'Total now' : 'Ended at'} ${s.finalCount}  ·  ${plural(s.presses, 'press', 'presses')}` +
       (s.lastTapTime ? `  ·  last press ${fmtTime(s.lastTapTime)}` : '');
+  el.dayBreakdown.replaceChildren(...breakdownChips(s.boxes, s.names));
 
   const rows = [];
   for (const p of restorePoints(evs)) {
     const isLatest = p.resetAt === null;
-    if (isToday && isLatest) continue; // that number is already on screen
-    const showing = p.count === tally.count;
+    if (isToday && isLatest) continue; // already on screen
+    const showing = p.count === tally.count && JSON.stringify(sorted(p.boxes)) === JSON.stringify(sorted(tally.day.boxes));
     const row = document.createElement('div');
     row.className = 'restore-row';
     const num = document.createElement('span');
@@ -456,14 +607,15 @@ async function showDay(key) {
     const title = document.createElement('b');
     title.textContent = isLatest ? 'Last count of the day' : `Count before the reset at ${fmtTimeShort(parseStamp(p.resetAt))}`;
     const sub = document.createElement('small');
-    sub.textContent = `Reached at ${fmtTime(parseStamp(p.time))}`;
+    const split = breakdownText(p.boxes, s.names);
+    sub.textContent = `Reached at ${fmtTime(parseStamp(p.time))}${split ? `   ·   ${split}` : ''}`;
     text.append(title, sub);
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'primary';
     btn.disabled = showing;
     btn.textContent = showing ? 'Showing now' : `Restore ${p.count}`;
-    btn.addEventListener('click', () => askRestore(key, p));
+    btn.addEventListener('click', () => askRestore(key, p, split));
     row.append(num, text, btn);
     rows.push(row);
   }
@@ -479,23 +631,23 @@ async function showDay(key) {
   el.csvBtn.hidden = evs.length === 0;
 }
 
-function askRestore(key, point) {
+function sorted(boxes) {
+  return Object.keys(boxes).filter(k => boxes[k] > 0).sort().map(k => [k, boxes[k]]);
+}
+
+function askRestore(key, point, split) {
   const from = key === tally.day.key ? 'earlier today' : fmtDayLong(key);
-  const body = tally.count === 0
-    ? `The counter will show ${point.count} (from ${from}) and carry on counting from there.`
-    : `The counter shows ${tally.count} now. It will change to ${point.count} (from ${from}). Nothing is deleted: every press stays in the log.`;
+  const body = (tally.count === 0
+    ? `The total will show ${point.count} (from ${from}) and carry on counting from there.`
+    : `The total shows ${tally.count} now. It will change to ${point.count} (from ${from}).`) +
+    (split ? ` Each product gets its count back too: ${split}.` : '') + ' Nothing is deleted: every press stays in the log.';
   showDialog(`Restore ${point.count}?`, body, `Restore ${point.count}`, false, async () => {
     const before = tally.day.key;
-    await tally.restore(point.count, point.time);
+    await tally.restore(point.count, point.time, point.boxes);
     closeSettings();
     afterChange(before);
     toast(`Restored ${point.count} from ${from}.`, 4000);
   });
-}
-
-function closeSettings() {
-  el.settings.hidden = true;
-  guardTaps();
 }
 
 async function saveCsv() {
@@ -511,12 +663,155 @@ async function saveCsv() {
   toast('Saved a copy to the Downloads folder.');
 }
 
-function setKeepOn(on) {
-  settings.keepOn = on;
-  const saved = saveSettings();
-  applyWakeLock();
-  toast(!saved ? "Couldn't save that setting. It works until Aziz Tally is closed."
-    : on ? 'The screen will stay on while Aziz Tally is open.' : 'The screen can turn off as normal now.');
+// ---- products
+
+function wireProductsEditor() {
+  for (const form of el.productsPane.querySelectorAll('.prod-add')) {
+    form.addEventListener('submit', e => {
+      e.preventDefault();
+      addProduct(form.dataset.side, el.addName[form.dataset.side].value);
+    });
+  }
+  el.productsPane.addEventListener('click', e => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const id = btn.closest('.prod-row').dataset.id;
+    if (btn.dataset.act === 'up') moveProduct(id, -1);
+    else if (btn.dataset.act === 'down') moveProduct(id, 1);
+    else if (btn.dataset.act === 'switch') switchSide(id);
+    else if (btn.dataset.act === 'remove') askRemove(id);
+  });
+  el.productsPane.addEventListener('change', e => {
+    if (e.target.classList.contains('prod-name')) renameProduct(e.target.closest('.prod-row').dataset.id, e.target);
+  });
+  el.productsPane.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && e.target.classList.contains('prod-name')) e.target.blur();
+  });
+}
+
+function renderProductsEditor() {
+  for (const side of SIDES) {
+    const list = products.filter(p => p.side === side);
+    const other = side === 'card' ? 'cash' : 'card';
+    if (!list.length) {
+      const empty = document.createElement('li');
+      empty.className = 'prod-empty';
+      empty.textContent = `No ${SIDE_NAMES[side].toLowerCase()} products yet. Type a name below and press Add.`;
+      el.prodList[side].replaceChildren(empty);
+      continue;
+    }
+    el.prodList[side].replaceChildren(...list.map((p, i) => {
+      const li = document.createElement('li');
+      li.className = 'prod-row';
+      li.dataset.id = p.id;
+      const input = document.createElement('input');
+      input.className = 'prod-name';
+      input.type = 'text';
+      input.maxLength = 40;
+      input.value = p.name;
+      input.setAttribute('aria-label', `Name of ${p.name} (${SIDE_NAMES[side]})`);
+      li.append(input,
+        actionButton('up', 'Move up', '<path d="M10 15V5M5.5 9.5 10 5l4.5 4.5"/>', i === 0),
+        actionButton('down', 'Move down', '<path d="M10 5v10M5.5 10.5 10 15l4.5-4.5"/>', i === list.length - 1),
+        actionButton('switch', `Move to the ${SIDE_NAMES[other]} side`, null, false, `To ${SIDE_NAMES[other]}`),
+        actionButton('remove', `Remove ${p.name}`, '<path d="M5 5l10 10M15 5 5 15"/>', false));
+      return li;
+    }));
+  }
+}
+
+function actionButton(act, title, svgPath, disabled, label) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.dataset.act = act;
+  b.title = title;
+  b.setAttribute('aria-label', title);
+  b.className = label ? 'soft' : `soft icon small${act === 'remove' ? ' remove' : ''}`;
+  b.disabled = disabled;
+  if (svgPath) b.innerHTML = `<svg viewBox="0 0 20 20" aria-hidden="true">${svgPath}</svg>`;
+  else b.textContent = label;
+  return b;
+}
+
+function cleanName(raw) { return String(raw || '').replace(/\s+/g, ' ').trim().slice(0, 40); }
+
+function productsChanged(message) {
+  const saved = saveProducts();
+  buildBoxes();
+  renderProductsEditor();
+  renderStatus();
+  toast(saved ? message : "Couldn't save the product list. It works until Aziz Tally is closed.");
+}
+
+function addProduct(side, raw) {
+  const name = cleanName(raw);
+  const input = el.addName[side];
+  if (!name) { input.focus(); toast('Type the product name first.'); return; }
+  if (products.some(p => p.side === side && p.name.toLowerCase() === name.toLowerCase())) {
+    toast(`There's already a ${name} on the ${SIDE_NAMES[side]} side.`);
+    return;
+  }
+  products.push({ id: newId(), name, side });
+  input.value = '';
+  productsChanged(`Added ${name} to ${SIDE_NAMES[side]}.`);
+  input.focus();
+}
+
+function renameProduct(id, input) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const name = cleanName(input.value);
+  if (!name) { input.value = p.name; toast('A product needs a name.'); return; }
+  if (name === p.name) { input.value = name; return; }
+  if (products.some(x => x.id !== id && x.side === p.side && x.name.toLowerCase() === name.toLowerCase())) {
+    input.value = p.name;
+    toast(`There's already a ${name} on the ${SIDE_NAMES[p.side]} side.`);
+    return;
+  }
+  const old = p.name;
+  p.name = name;
+  productsChanged(`Renamed ${old} to ${name}. Its count stays the same.`);
+}
+
+function moveProduct(id, dir) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const same = products.filter(x => x.side === p.side);
+  const j = same.indexOf(p) + dir;
+  if (j < 0 || j >= same.length) return;
+  const a = products.indexOf(p), b = products.indexOf(same[j]);
+  [products[a], products[b]] = [products[b], products[a]];
+  productsChanged(`Moved ${p.name} ${dir < 0 ? 'up' : 'down'}.`);
+}
+
+function switchSide(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const to = p.side === 'card' ? 'cash' : 'card';
+  if (products.some(x => x.side === to && x.name.toLowerCase() === p.name.toLowerCase())) {
+    toast(`There's already a ${p.name} on the ${SIDE_NAMES[to]} side.`);
+    return;
+  }
+  // Presses already counted stay with the product, so its count moves with it.
+  products.splice(products.indexOf(p), 1);
+  p.side = to;
+  products.push(p);
+  productsChanged(`Moved ${p.name} to the ${SIDE_NAMES[to]} side.`);
+}
+
+function askRemove(id) {
+  const p = products.find(x => x.id === id);
+  if (!p) return;
+  const n = tally.day.boxCount(id);
+  showDialog(`Remove ${p.name} (${SIDE_NAMES[p.side]})?`,
+    n > 0
+      ? `Its box disappears from the counter. Today's ${n} ${n === 1 ? 'press stays' : 'presses stay'} in the total and in the history.`
+      : 'Its box disappears from the counter. Past presses stay in the history.',
+    'Remove', true,
+    () => {
+      products = products.filter(x => x.id !== id);
+      productsChanged(`Removed ${p.name}.`);
+    });
 }
 
 // ------------------------------------------------------------------ dialog
@@ -582,6 +877,14 @@ function watchInstall() {
   });
 }
 
+function setKeepOn(on) {
+  settings.keepOn = on;
+  const saved = saveSettings();
+  applyWakeLock();
+  toast(!saved ? "Couldn't save that setting. It works until Aziz Tally is closed."
+    : on ? 'The screen will stay on while Aziz Tally is open.' : 'The screen can turn off as normal now.');
+}
+
 /** Asks Chrome to keep the screen on while the app is showing (like a video player does). */
 async function applyWakeLock() {
   if (!settings.keepOn || document.visibilityState !== 'visible') {
@@ -604,6 +907,8 @@ window.azizTally = {
   get count() { return tally ? tally.count : null; },
   get day() { return tally ? tally.day.key : null; },
   get events() { return tally ? tally.day.events.length : null; },
+  get products() { return products.map(p => ({ ...p })); },
+  boxCount(id) { return tally ? tally.day.boxCount(id) : null; },
   get logOpen() { return logOpen; },
   get toast() { return lastToast; },
   get wakeLock() { return !!(wakeLock && !wakeLock.released); },
