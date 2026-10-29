@@ -1,7 +1,7 @@
 // Aziz Tally for Chromebook - keeps a copy of the app on the Chromebook so it opens without internet.
 // To ship an update, change CACHE: the new version is fetched in the background and used from the next launch.
 
-const CACHE = 'aziz-tally-1.0.0';
+const CACHE = 'aziz-tally-1.1.0';
 const FILES = [
   './', 'index.html', 'app.css', 'app.js', 'core.js', 'store.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png',
