@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#0F1012">
 <meta name="robots" content="noindex">
-<meta name="description" content="Tap the screen to count. Every press is saved, and each day starts again from 0.">
+<meta name="description" content="Tap a product to count it. Every press is saved, and each day starts again from 0.">
 <title>Aziz Tally</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
@@ -13,18 +13,33 @@
 <script type="module" src="app.js"></script>
 </head>
 <body>
-  <!-- The whole screen is the button: any press here adds 1 -->
-  <main id="surface" aria-label="Tap anywhere to add 1">
-    <div id="ripples" aria-hidden="true"></div>
-    <div id="stage">
-      <canvas id="count" role="img" aria-label="Count 0"></canvas>
-      <p id="last">No presses yet today</p>
-    </div>
-    <p id="date" class="note left"></p>
-    <p id="hint" class="note center">Tap anywhere to add 1</p>
-  </main>
+  <!-- Card boxes | total | Cash boxes. Only the boxes count; the rest of the screen doesn't. -->
+  <main id="board">
+    <section class="side card" aria-labelledby="title-card">
+      <h2 class="side-title" id="title-card">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M2.5 8.2h15M5.5 12.3h3"/></svg>
+        Card
+      </h2>
+      <div class="boxes" id="boxes-card"></div>
+    </section>
 
-  <!-- Corner controls (these never count as a press) -->
+    <section id="center" aria-label="Total">
+      <canvas id="count" role="img" aria-label="Total 0"></canvas>
+      <p id="last">No presses yet today</p>
+    </section>
+
+    <section class="side cash" aria-labelledby="title-cash">
+      <h2 class="side-title" id="title-cash">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="5" width="16" height="10" rx="2"/><circle cx="10" cy="10" r="2.2"/><path d="M5.2 8v4M14.8 8v4"/></svg>
+        Cash
+      </h2>
+      <div class="boxes" id="boxes-cash"></div>
+    </section>
+  </main>
+  <p id="date" class="note left"></p>
+  <p id="hint" class="note center"></p>
+
+  <!-- Corner controls -->
   <button id="resetBtn" class="soft tl" type="button" title="Start again from 0 (a new day)">
     <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16 10a6 6 0 1 1-1.8-4.3M16 3.5v3.4h-3.4"/></svg>
     <span>Reset</span>
@@ -35,76 +50,108 @@
       <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 16.5h12"/></svg>
       <span>Install app</span>
     </button>
+    <button id="logBtn" class="soft" type="button" title="Today's presses" aria-expanded="false" aria-controls="log">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h7"/></svg>
+      <span>Log</span>
+    </button>
     <button id="fullBtn" class="soft icon" type="button" title="Full screen">
       <svg id="fullIcon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 7.5v-4h4M16.5 7.5v-4h-4M3.5 12.5v4h4M16.5 12.5v4h-4"/></svg>
     </button>
-    <button id="settingsBtn" class="soft icon" type="button" title="Settings, history and restore">
+    <button id="settingsBtn" class="soft icon" type="button" title="Settings: products, history and restore">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
     </button>
   </div>
 
-  <!-- Press log: a small tab on the right edge; the panel slides out from behind it -->
-  <aside id="log" aria-label="Today's press log">
-    <button id="logHandle" type="button" title="Today's press log" aria-expanded="false">
-      <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 5 7.5 10l5 5"/></svg>
-      <span>LOG</span>
-    </button>
-    <section id="logPanel">
-      <header class="log-head">
-        <div>
-          <h2>Today's presses</h2>
-          <p id="logSub"></p>
-        </div>
-        <button id="logClose" class="soft icon small" type="button" title="Hide the log">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5l5 5-5 5"/></svg>
-        </button>
-      </header>
-      <ol id="logList" class="rows"></ol>
-      <p id="logEmpty" class="empty">No presses yet today.</p>
-      <footer class="log-foot">
-        <button id="undoBtn" class="soft wide" type="button" title="Take 1 off the count (Backspace)">
-          <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 3.5 8 7 11.5M3.5 8H12a4.5 4.5 0 0 1 0 9H8"/></svg>
-          <span>Undo last press</span>
-        </button>
-      </footer>
-    </section>
+  <!-- Press log: slides in from the right -->
+  <aside id="log" aria-label="Today's presses">
+    <header class="log-head">
+      <div>
+        <h2>Today's presses</h2>
+        <p id="logSub"></p>
+      </div>
+      <button id="logClose" class="soft icon small" type="button" title="Hide the log">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5l5 5-5 5"/></svg>
+      </button>
+    </header>
+    <ol id="logList" class="rows"></ol>
+    <p id="logEmpty" class="empty">No presses yet today.</p>
+    <footer class="log-foot">
+      <button id="undoBtn" class="soft wide" type="button" title="Take back the last press (Backspace)">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7 4.5 3.5 8 7 11.5M3.5 8H12a4.5 4.5 0 0 1 0 9H8"/></svg>
+        <span>Undo last press</span>
+      </button>
+    </footer>
   </aside>
 
   <div id="toast" role="status" aria-live="polite"></div>
-  <div id="saveBanner" hidden>Can't save right now. Keep counting: the number on screen is right and it keeps trying to save.</div>
+  <div id="saveBanner" hidden>Can't save right now. Keep counting: the numbers on screen are right and it keeps trying to save.</div>
 
   <!-- Settings (covers the whole window) -->
   <section id="settings" hidden aria-label="Settings">
     <header class="set-head">
       <div>
         <h1>Settings</h1>
-        <p>Every press is saved straight away, so closing the app or a restart carries on from where it was. To bring back an older count, pick the day and press Restore.</p>
+        <div class="tabs" role="tablist" aria-label="Settings pages">
+          <button id="tabHistory" class="tab" type="button" role="tab" aria-selected="true" aria-controls="historyPane">History and restore</button>
+          <button id="tabProducts" class="tab" type="button" role="tab" aria-selected="false" aria-controls="productsPane">Products</button>
+        </div>
+        <p id="setNote"></p>
       </div>
       <button id="settingsClose" class="soft" type="button" title="Back to the counter (Esc)">
         <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
         <span>Close</span>
       </button>
     </header>
-    <div class="set-body">
-      <div class="card days">
-        <h3 class="label">Days</h3>
-        <ol id="dayList"></ol>
+
+    <div class="set-main">
+      <div id="historyPane" class="set-body" role="tabpanel" aria-labelledby="tabHistory">
+        <div class="panel days">
+          <h3 class="label">Days</h3>
+          <ol id="dayList"></ol>
+        </div>
+        <div class="panel detail">
+          <div class="detail-head">
+            <h2 id="dayTitle"></h2>
+            <p id="daySub"></p>
+            <p id="dayBreakdown"></p>
+          </div>
+          <h3 class="label">Restore</h3>
+          <div id="restoreList"></div>
+          <p id="restoreEmpty" class="empty"></p>
+          <div class="press-head">
+            <h3 class="label">Every press</h3>
+            <button id="csvBtn" class="link" type="button" title="Save this day's presses as a spreadsheet file">Save a copy</button>
+          </div>
+          <ol id="dayLog" class="rows"></ol>
+        </div>
       </div>
-      <div class="card detail">
-        <div class="detail-head">
-          <h2 id="dayTitle"></h2>
-          <p id="daySub"></p>
+
+      <div id="productsPane" class="products" role="tabpanel" aria-labelledby="tabProducts" hidden>
+        <div class="panel prod-col card-side" data-side="card">
+          <h3 class="prod-title">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M2.5 8.2h15M5.5 12.3h3"/></svg>
+            Card
+          </h3>
+          <ol class="prod-list" id="prodList-card"></ol>
+          <form class="prod-add" data-side="card">
+            <input id="addName-card" type="text" maxlength="40" placeholder="New product for Card" aria-label="New product for the Card side" autocomplete="off">
+            <button class="primary" type="submit">Add</button>
+          </form>
         </div>
-        <h3 class="label">Restore</h3>
-        <div id="restoreList"></div>
-        <p id="restoreEmpty" class="empty"></p>
-        <div class="press-head">
-          <h3 class="label">Every press</h3>
-          <button id="csvBtn" class="link" type="button" title="Save this day's presses as a spreadsheet file">Save a copy</button>
+        <div class="panel prod-col cash-side" data-side="cash">
+          <h3 class="prod-title">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="5" width="16" height="10" rx="2"/><circle cx="10" cy="10" r="2.2"/><path d="M5.2 8v4M14.8 8v4"/></svg>
+            Cash
+          </h3>
+          <ol class="prod-list" id="prodList-cash"></ol>
+          <form class="prod-add" data-side="cash">
+            <input id="addName-cash" type="text" maxlength="40" placeholder="New product for Cash" aria-label="New product for the Cash side" autocomplete="off">
+            <button class="primary" type="submit">Add</button>
+          </form>
         </div>
-        <ol id="dayLog" class="rows"></ol>
       </div>
     </div>
+
     <footer class="set-foot">
       <label class="switch" for="keepOn">
         <input id="keepOn" type="checkbox">
