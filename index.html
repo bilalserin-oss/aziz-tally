@@ -90,24 +90,37 @@
     position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 10;
     background: var(--bg); border: 1px solid var(--line); border-radius: 18px;
     box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.8), 0 0 0 8px var(--panel);
-    cursor: pointer; user-select: none; -webkit-user-select: none; overflow: hidden;
-    display: grid; place-items: center;
+    user-select: none; -webkit-user-select: none; overflow: hidden;
   }
-  .screen:focus-visible { outline: 3px solid var(--amber); outline-offset: 10px; }
-  .screen .reset, .screen .gear {
+  .screen .reset, .screen .gear, .screen .logb {
     position: absolute; top: 4.5%; font-size: clamp(0.62rem, 1.4vw, 0.8rem); color: var(--ink);
     background: rgba(255, 255, 255, 0.1); border-radius: 8px; padding: 0.5em 0.9em;
   }
   .screen .reset { left: 4%; }
   .screen .gear { right: 4%; padding: 0.5em 0.65em; color: var(--muted); }
-  .screen .tab {
-    position: absolute; right: 0; top: 50%; translate: 0 -50%; width: 4.2%; height: 22%;
-    background: var(--raised); border-radius: 8px 0 0 8px; display: grid; place-items: center;
-    font-size: clamp(0.5rem, 1vw, 0.62rem); color: var(--muted); font-weight: 600; writing-mode: vertical-rl; letter-spacing: 0.06em;
+  .screen .logb { right: 12.5%; }
+  /* Card boxes | total | Cash boxes, like the real app */
+  .screen .mini {
+    position: absolute; inset: 17% 4% 13% 4%;
+    display: grid; grid-template-columns: 27% minmax(0, 1fr) 27%; gap: 3%;
   }
-  .screen .count { display: grid; justify-items: center; gap: 0.2em; }
+  .screen .mside { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+  .screen .mside.card { --side: #93B9FF; --side-bg: rgba(147, 185, 255, 0.12); --side-line: rgba(147, 185, 255, 0.32); }
+  .screen .mside.cash { --side: #8FDCA8; --side-bg: rgba(143, 220, 168, 0.12); --side-line: rgba(143, 220, 168, 0.32); }
+  .screen .mtitle { color: var(--side); font-weight: 600; font-size: clamp(0.62rem, 1.5vw, 0.9rem); }
+  .screen .mbox {
+    flex: 1; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--side-line); border-radius: 8px;
+  }
+  .screen .mbox:hover { border-color: var(--side); }
+  .screen .mbox:focus-visible { outline: 2px solid var(--side); outline-offset: 2px; }
+  .screen .mbox span { background: var(--side-bg); color: var(--side); font-weight: 600; font-size: clamp(0.5rem, 1.1vw, 0.7rem); padding: 2px 7px; }
+  .screen .mbox b { place-self: center; font-size: clamp(1rem, 3vw, 1.8rem); font-variant-numeric: tabular-nums; }
+  .screen .mbox.hit { animation: hit 300ms ease-out; }
+  @keyframes hit { from { background: var(--side-line); } to { background: var(--panel); } }
+  .screen .count { display: grid; justify-items: center; align-content: center; gap: 0.2em; min-width: 0; }
   .screen .num {
-    font-family: var(--display); font-weight: 600; font-size: clamp(4.5rem, 15vw, 9.5rem); line-height: 0.9;
+    font-family: var(--display); font-weight: 600; font-size: clamp(3rem, 9vw, 6rem); line-height: 0.9;
     font-variant-numeric: tabular-nums; color: var(--ink);
   }
   .screen .last { color: var(--muted); font-size: clamp(0.7rem, 1.6vw, 0.95rem); font-variant-numeric: tabular-nums; }
@@ -171,7 +184,7 @@
           <h1>Aziz Tally</h1>
         </div>
       </div>
-      <p class="lede">Tap the screen and the number goes up by one. Every press is saved with its time, and each day starts again from 0.</p>
+      <p class="lede">Tap a product and its count and the total both go up by one, sorted into card and cash. Every press is saved with its time, and each day starts again from 0.</p>
       <div class="platforms" id="platforms">
         <div class="platform" id="pf-chromebook">
           <div class="pf-head"><span class="pf-name">Chromebook</span><span class="pf-tag" hidden>This computer</span></div>
@@ -191,24 +204,36 @@
             </svg>
             Download for Windows
           </a>
-          <p class="meta">Version 1.0.0 &middot; 108 KB zip &middot; Windows 10 or 11</p>
+          <p class="meta">Version 1.1.0 &middot; 118 KB zip &middot; Windows 10 or 11</p>
           <p class="status" id="status" role="status" aria-live="polite"></p>
         </div>
       </div>
     </div>
 
     <div>
-      <div class="screen" id="screen" role="button" tabindex="0" aria-label="Preview of the app. Press to add 1.">
+      <div class="screen" id="screen" aria-label="Preview of the app">
         <span class="reset">&#8635;&nbsp; Reset</span>
+        <span class="logb">Log</span>
         <span class="gear" aria-hidden="true">&#9881;</span>
-        <span class="tab" aria-hidden="true">LOG</span>
-        <div class="count">
-          <div class="num" id="num">16</div>
-          <div class="last" id="last">Last press&nbsp; 3:42:15 PM</div>
+        <div class="mini">
+          <div class="mside card">
+            <span class="mtitle">Card</span>
+            <div class="mbox" role="button" tabindex="0" aria-label="gIet, Card"><span>gIet</span><b>1</b></div>
+            <div class="mbox" role="button" tabindex="0" aria-label="auber, Card"><span>auber</span><b>2</b></div>
+          </div>
+          <div class="count">
+            <div class="num" id="num">10</div>
+            <div class="last" id="last">Last press&nbsp; 11:39:56 AM</div>
+          </div>
+          <div class="mside cash">
+            <span class="mtitle">Cash</span>
+            <div class="mbox" role="button" tabindex="0" aria-label="gIet, Cash"><span>gIet</span><b>3</b></div>
+            <div class="mbox" role="button" tabindex="0" aria-label="auber, Cash"><span>auber</span><b>4</b></div>
+          </div>
         </div>
-        <span class="date" id="date">Saturday 17/10/2026</span>
+        <span class="date" id="date">Thursday 29/10/2026</span>
       </div>
-      <p class="try">This is what it looks like. Tap the screen above to try it.</p>
+      <p class="try">This is what it looks like. Tap a product above to try it.</p>
     </div>
   </section>
 
@@ -263,12 +288,13 @@
   <section class="section" aria-labelledby="using">
     <h2 id="using">Using it</h2>
     <dl class="use">
-      <div><dt>Add 1</dt><dd>Tap anywhere on the screen, or press <span class="key">Space</span>.</dd></div>
-      <div><dt>Take 1 off</dt><dd>Press <span class="key">Backspace</span>, or open the log and press <b>Undo last press</b>.</dd></div>
-      <div><dt>Start again from 0</dt><dd><b>Reset</b> in the top-left corner. It asks first, so a stray tap can't wipe the count.</dd></div>
-      <div><dt>See every press</dt><dd>The small <b>LOG</b> tab on the right edge lists each press with its time.</dd></div>
-      <div><dt>A new day</dt><dd>At midnight the count starts again from 0 by itself. Yesterday's count is kept.</dd></div>
-      <div><dt>Bring back an old count</dt><dd>Press the <b>gear</b> (Settings), pick the day, then press <b>Restore</b>. This also undoes a Reset pressed by mistake.</dd></div>
+      <div><dt>Set up your products</dt><dd>Press the <b>gear</b> (Settings), then <b>Products</b>. Add each product under <b>Card</b> or <b>Cash</b>; you can rename them, change their order or move them to the other side at any time.</dd></div>
+      <div><dt>Count a sale</dt><dd>Tap the product's box. That box and the total in the middle both go up by 1, and each shows the time of its last press. Tapping anywhere else does nothing.</dd></div>
+      <div><dt>Take 1 off</dt><dd>Press <span class="key">Backspace</span>, or open the <b>Log</b> and press <b>Undo last press</b>. It takes back the newest press, from the right box.</dd></div>
+      <div><dt>Start again from 0</dt><dd><b>Reset</b> in the top-left corner. It asks first, so a stray tap can't wipe the counts.</dd></div>
+      <div><dt>See every press</dt><dd>The <b>Log</b> button at the top lists each press with its product, card or cash, and time.</dd></div>
+      <div><dt>A new day</dt><dd>At midnight every box and the total start again from 0 by themselves. Yesterday's counts are kept.</dd></div>
+      <div><dt>Bring back an old count</dt><dd>Press the <b>gear</b> (Settings), pick the day, then press <b>Restore</b>. Every product gets its count back too. This also undoes a Reset pressed by mistake.</dd></div>
       <div><dt>If the laptop shuts down</dt><dd>Open Aziz Tally again. It carries on from the last number, because every press is saved as it happens.</dd></div>
       <div><dt>Screen stays on</dt><dd>While the app is open the screen won't turn off. You can switch this off in Settings.</dd></div>
     </dl>
@@ -294,12 +320,11 @@
       hereSteps.parentNode.insertBefore(hereSteps, otherSteps);
     }
 
-    // The preview behaves like the app: a press adds 1 and shows the time.
-    var screen = document.getElementById("screen");
+    // The preview behaves like the app: a product press adds 1 to it and to the total, and shows the time.
     var num = document.getElementById("num");
     var last = document.getElementById("last");
     var dateEl = document.getElementById("date");
-    var count = 16;
+    var count = 10;
     var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     function two(n) { return (n < 10 ? "0" : "") + n; }
     function timeText(d) {
@@ -308,17 +333,24 @@
     }
     var today = new Date();
     dateEl.textContent = DAYS[today.getDay()] + " " + two(today.getDate()) + "/" + two(today.getMonth() + 1) + "/" + today.getFullYear();
-    function press() {
+    function press(box) {
+      var n = box.querySelector("b");
+      n.textContent = String(parseInt(n.textContent, 10) + 1);
       count += 1;
       num.textContent = String(count);
-      last.textContent = "Last press  " + timeText(new Date());
-      num.classList.remove("pulse");
-      void num.offsetWidth;
-      num.classList.add("pulse");
+      last.textContent = "Last press\u00a0 " + timeText(new Date());
+      [num, box].forEach(function (el) {
+        var cls = el === num ? "pulse" : "hit";
+        el.classList.remove(cls);
+        void el.offsetWidth;
+        el.classList.add(cls);
+      });
     }
-    screen.addEventListener("click", press);
-    screen.addEventListener("keydown", function (e) {
-      if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!e.repeat) press(); }
+    Array.prototype.forEach.call(document.querySelectorAll(".mbox"), function (box) {
+      box.addEventListener("click", function () { press(box); });
+      box.addEventListener("keydown", function (e) {
+        if (e.key === " " || e.key === "Enter") { e.preventDefault(); if (!e.repeat) press(box); }
+      });
     });
   })();
 </script>
