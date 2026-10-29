@@ -3,10 +3,16 @@
 // same logic runs against IndexedDB in the app and an in-memory store in tests.
 //
 // Every change is one event { day, time, action, count, note } where `count` is
-// the count AFTER the event, exactly like the Windows app's day logs.
+// the total AFTER the event, exactly like the Windows app's day logs.
+// Since 1.1 a press is for a product box, so TAP and UNDO also carry
+// { box, boxName, side, boxCount } (boxCount = that box AFTER the event) and RESTORE
+// carries { boxes: { boxId: count } }. Events saved before 1.1 have none of these
+// and still load: they count toward the total only.
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 export const ACTIONS = ['TAP', 'UNDO', 'RESET', 'RESTORE'];
+export const SIDES = ['card', 'cash'];
+export const SIDE_NAMES = { card: 'Card', cash: 'Cash' };
 
 const pad = (n, w = 2) => String(n).padStart(w, '0');
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -59,77 +65,130 @@ export function plural(n, one, many) { return `${n} ${n === 1 ? one : many}`; }
 
 // ---------------------------------------------------------------- events
 
-export function makeEvent(action, count, now, note = '') {
-  return { day: dayKey(now), time: stamp(now), action, count, note: String(note) };
+export function makeEvent(action, count, now, note = '', extra = null) {
+  const e = { day: dayKey(now), time: stamp(now), action, count, note: String(note) };
+  return extra ? Object.assign(e, extra) : e;
+}
+
+const isCount = n => Number.isInteger(n) && n >= 0;
+
+/** Box counts from a RESTORE event (or anything else): only sensible entries survive. */
+export function cleanBoxes(boxes) {
+  const out = {};
+  if (boxes && typeof boxes === 'object') {
+    for (const [id, n] of Object.entries(boxes)) if (typeof id === 'string' && id && isCount(n) && n > 0) out[id] = n;
+  }
+  return out;
 }
 
 /** Anything that isn't a complete, sensible event is ignored when loading. */
 export function validEvent(e) {
   return !!e && typeof e === 'object' &&
     ACTIONS.includes(e.action) &&
-    Number.isInteger(e.count) && e.count >= 0 &&
+    isCount(e.count) &&
     typeof e.day === 'string' && typeof e.time === 'string' &&
-    parseStamp(e.time) !== null && e.time.startsWith(e.day);
+    parseStamp(e.time) !== null && e.time.startsWith(e.day) &&
+    (e.box === undefined || (typeof e.box === 'string' && e.box !== '')) &&
+    (e.boxCount === undefined || isCount(e.boxCount));
 }
 
-/** One day's events replayed: the count, and the presses not cancelled by undo/reset/restore. */
+/**
+ * One day's events replayed: the total, each box's count, and the presses not cancelled
+ * by undo/reset/restore (newest last; Undo takes back the newest).
+ */
 export class DayState {
   constructor(key, events = []) {
     this.key = key;
     this.events = [];
     this.count = 0;
     this.live = [];
+    this.boxes = {};
     for (const e of events) this.apply(e);
   }
   apply(e) {
     this.events.push(e);
     this.count = e.count;
-    if (e.action === 'TAP') this.live.push(e.time);
-    else if (e.action === 'UNDO') this.live.pop();
-    else this.live.length = 0;
+    if (e.action === 'TAP') {
+      this.live.push({ time: e.time, box: e.box || null, name: e.boxName || '', side: e.side || '' });
+      if (e.box) this.boxes[e.box] = isCount(e.boxCount) ? e.boxCount : (this.boxes[e.box] || 0) + 1;
+    } else if (e.action === 'UNDO') {
+      const undone = this.live.pop();
+      const box = e.box || (undone && undone.box);
+      if (box) this.boxes[box] = isCount(e.boxCount) ? e.boxCount : Math.max(0, (this.boxes[box] || 0) - 1);
+    } else if (e.action === 'RESET') {
+      this.live.length = 0;
+      this.boxes = {};
+    } else {
+      this.live.length = 0;
+      this.boxes = cleanBoxes(e.boxes);
+    }
   }
-  get lastTapTime() { return this.live.length ? parseStamp(this.live[this.live.length - 1]) : null; }
+  get lastTapTime() { return this.live.length ? parseStamp(this.live[this.live.length - 1].time) : null; }
+  get lastLive() { return this.live.length ? this.live[this.live.length - 1] : null; }
   get last() { return this.events.length ? this.events[this.events.length - 1] : null; }
+  boxCount(id) { return this.boxes[id] || 0; }
+  boxLastTime(id) {
+    for (let i = this.live.length - 1; i >= 0; i--) if (this.live[i].box === id) return parseStamp(this.live[i].time);
+    return null;
+  }
+}
+
+/** The name and side each box had in a day's events (latest wins), for history that outlives renames. */
+export function boxNames(events) {
+  const names = {};
+  for (const e of events) if (e.box && e.boxName) names[e.box] = { name: e.boxName, side: SIDES.includes(e.side) ? e.side : '' };
+  return names;
 }
 
 export function summarize(key, events) {
-  const s = { day: key, finalCount: 0, presses: 0, lastTime: null, lastTapTime: null };
+  const s = { day: key, finalCount: 0, presses: 0, lastTime: null, lastTapTime: null, boxes: {}, names: boxNames(events) };
   for (const e of events) {
     if (e.action === 'TAP') { s.presses++; s.lastTapTime = parseStamp(e.time); }
   }
   if (events.length) {
     s.finalCount = events[events.length - 1].count;
     s.lastTime = parseStamp(events[events.length - 1].time);
+    s.boxes = { ...new DayState(key, events).boxes };
   }
   return s;
 }
 
 /**
- * Counts worth bringing back from a day: the last count of the day, plus any count
- * wiped by a reset. Newest first; zero counts and repeats of a number left out.
+ * Counts worth bringing back from a day: the last count of the day, plus any count wiped by
+ * a reset, each with its box breakdown. Newest first; zero totals and exact repeats left out.
  */
 export function restorePoints(events) {
   const points = [];
-  events.forEach((e, i) => {
-    if (e.action !== 'RESET') return;
-    const before = i > 0 ? events[i - 1].count : parseInt(e.note, 10);
-    const when = i > 0 ? events[i - 1].time : e.time;
-    if (before > 0) points.push({ count: before, time: when, resetAt: e.time });
-  });
-  if (events.length) {
-    const last = events[events.length - 1];
-    if (last.count > 0) points.push({ count: last.count, time: last.time, resetAt: null });
+  const d = new DayState('');
+  for (const e of events) {
+    if (e.action === 'RESET') {
+      const before = d.events.length ? d.count : parseInt(e.note, 10);
+      const when = d.events.length ? d.events[d.events.length - 1].time : e.time;
+      if (before > 0) points.push({ count: before, time: when, resetAt: e.time, boxes: { ...d.boxes } });
+    }
+    d.apply(e);
+  }
+  if (events.length && d.count > 0) {
+    points.push({ count: d.count, time: events[events.length - 1].time, resetAt: null, boxes: { ...d.boxes } });
   }
   points.reverse();
   const seen = new Set();
-  return points.filter(p => !seen.has(p.count) && seen.add(p.count));
+  return points.filter(p => {
+    const sig = `${p.count}|${Object.keys(p.boxes).sort().map(k => `${k}:${p.boxes[k]}`).join(',')}`;
+    return !seen.has(sig) && seen.add(sig);
+  });
 }
 
+const csvText = s => `"${String(s || '').replace(/"/g, '""')}"`;
+
 export function toCsv(events) {
-  const rows = ['Date,Time,Action,Count,Note'];
+  const rows = ['Date,Time,Action,Product,Paid by,Product count,Total,Note'];
   for (const e of events) {
     const t = parseStamp(e.time);
-    rows.push([fmtDate(e.day), fmtTime(t), e.action, e.count, `"${String(e.note || '').replace(/"/g, '""')}"`].join(','));
+    rows.push([
+      fmtDate(e.day), fmtTime(t), e.action, csvText(e.boxName), SIDE_NAMES[e.side] || '',
+      isCount(e.boxCount) ? e.boxCount : '', e.count, csvText(e.note),
+    ].join(','));
   }
   return rows.join('\r\n') + '\r\n';
 }
@@ -169,20 +228,29 @@ export class Tally {
   /** Moves to a new day if the date has changed. Resolves true when it did. */
   ensureDay() { return this.run(() => this.ensureDayFor(this.clock())); }
 
-  tap() {
+  /** One press for a product box {id, name, side}: that box and the total both go up by 1. */
+  tap(box = null) {
     return this.run(async () => {
       const now = this.clock();
       await this.ensureDayFor(now);
-      return this.commit('TAP', this.day.count + 1, '', now);
+      const extra = box
+        ? { box: box.id, boxName: box.name, side: box.side, boxCount: this.day.boxCount(box.id) + 1 }
+        : null;
+      return this.commit('TAP', this.day.count + 1, '', now, extra);
     });
   }
 
-  /** Takes one off. Resolves null (and saves nothing) at 0. */
+  /** Takes back the newest press (from its box too). Resolves null, saving nothing, if there is none. */
   undo() {
     return this.run(async () => {
       const now = this.clock();
       await this.ensureDayFor(now);
-      return this.day.count > 0 ? this.commit('UNDO', this.day.count - 1, '', now) : null;
+      const last = this.day.lastLive;
+      if (!last || this.day.count <= 0) return null;
+      const extra = last.box
+        ? { box: last.box, boxName: last.name, side: last.side, boxCount: Math.max(0, this.day.boxCount(last.box) - 1) }
+        : null;
+      return this.commit('UNDO', this.day.count - 1, '', now, extra);
     });
   }
 
@@ -194,13 +262,13 @@ export class Tally {
     });
   }
 
-  /** Sets today's count to a value recorded earlier (sourceTime = when it was recorded). */
-  restore(value, sourceTime) {
+  /** Sets today's total and box counts to ones recorded earlier (sourceTime = when they were recorded). */
+  restore(value, sourceTime, boxes = {}) {
     if (!Number.isInteger(value) || value < 0) throw new Error('bad restore value');
     return this.run(async () => {
       const now = this.clock();
       await this.ensureDayFor(now);
-      return this.commit('RESTORE', value, sourceTime, now);
+      return this.commit('RESTORE', value, sourceTime, now, { boxes: cleanBoxes(boxes) });
     });
   }
 
@@ -243,8 +311,8 @@ export class Tally {
     return stored.concat(this.pending.filter(e => e.day === key));
   }
 
-  commit(action, count, note, now) {
-    const e = makeEvent(action, count, now, note);
+  commit(action, count, note, now, extra = null) {
+    const e = makeEvent(action, count, now, note, extra);
     this.day.apply(e);
     this.knownDays.add(e.day);
     this.pending.push(e);
